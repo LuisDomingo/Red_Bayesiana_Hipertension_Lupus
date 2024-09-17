@@ -1,0 +1,233 @@
+---
+title: "Estructura Red Bayesiana"
+author: "Domingo Martínez"
+toc: true # Activar tabla de contenido
+toc-depth: 3 # Profundidad de la tabla de contenido
+toc-expand: true # Mostrar tabla al inicio
+toc-location: left-body # Ubicación de la tabla de contenido
+number-sections: true # Numerar los encabezados en el render
+number-depth: 3 # Profundidad de encabezados que se numerarán
+toc-title: Contenido # Personalizar el título de la tabla de contenidos
+theme: flatly # Tema
+fontsize: 100% # Tamaño de la letra
+# fontcolor: grey # Definir color
+highlight-style: pygments
+format:
+  html:
+    code-fold: true
+    html-math-method: katex
+  pdf:
+    geometry:
+      - top=30mm
+      - left=30mm
+  docx: default
+---
+
+```{r}
+#| label: setup
+#| echo: true
+#| include: false
+# Llamado de librerías
+library(tidyverse)
+library(visdat)
+library(bnlearn)
+```
+
+
+## Introducción
+
+En este script se desarrollará la estructura de una Red Bayesiana, mediante algoritmos y luego será corregida y validada por especialistas en reumatología, para modelar el efecto de los factores modificables, no modificables, de comportamiento y novedosos que pudieran predecir la hipertensión en personas mexicanas con lupus eritematoso sistémico.
+
+## Lectura de la base de datos
+
+```{r }
+#| label: Lectura de la base de datos
+#| echo: false
+#| include: false
+# Leemos el conjunto de datos
+tb.01 <- read.csv("base.de.datos.sin.registros.duplicados_16_septiembre_2024.csv")
+# Revisamos la estructura del conjunto de datos
+str(tb.01)
+# Verificamos los nombres de las variables
+names(tb.01)
+```
+
+## Descripción y selección de variables de interés
+
+La variable objetivo es hipertensión, codificada de la siguiente manera
+
+### Factores modificables
+
+```{r}
+#| label: Filtrado factores modificables
+#| echo: true
+
+factores.modificables<-tb.01 %>%
+  select(hipertension___1, #Hipertensión arterial (sin contar en el embarazo), {1=sí}
+         hipertension_dxmed, # ¿Fue diagnosticado(a) con hipertensión por un médico? {1=sí,2=no}
+         hipertension_edaddx, # ¿A qué edad fue usted diagnosticado(a) por primera vez con hipertensión?, 1:{0-9 años}, 2:{10-19 años}, ..., 10:{90-99}, 99_{No recuerdo/No deseo contestar}
+         hipertension_edadsx, # ¿A qué edad comenzó usted a padecer de hipertensión?, 1:{0-9 años}, 2:{10-19 años}, ..., 10:{90-99}, 99_{No recuerdo/No deseo contestar}
+         enf_hipertensiva_embarazo___1, # Hipertensión durante el embarazo (preeclampsia, eclampsia), sí.
+         enf_hipertensiva_embarazo_dxmed, # ¿Fue diagnosticado(a) con hipertensión en el embarazo por un médico?, {1=sí,2=no, 99=No recuerdo/No deseo contestar}
+         enf_hipertensiva_embarazo_edaddx, # ¿A qué edad fue usted diagnosticado(a) por primera vez con hipertensión en el embarazo?, 1:{0-9 años}, 2:{10-19 años}, ..., 10:{90-99}, 99_{No recuerdo/No deseo contestar}
+         enf_hipertensiva_embarazo_edadsx # ¿A qué edad comenzó usted a padecer de hipertensión en el embarazo?, 1:{0-9 años}, 2:{10-19 años}, ..., 10:{90-99}, 99_{No recuerdo/No deseo contestar}
+         )
+```
+
+### Factores no modificables
+
+```{r}
+#| label: Filtrado factores NO modificables
+#| echo: true
+factores.no.modificables<-tb.01 %>%
+  select(calculated_age, # Edad (calculada automáticamente))
+         age_group, # ¿A cuál de los siguientes grupos de edad pertenece?, {1:19-25, 2:26-31, 3:32-45, 4:46-50, 5:51-60, 6: más de 60}
+         sex___1, # Sexo femenino {1=mujer}
+         hispano, # Seleccione la opción con la que que usted más se identiﬁca: {1= Hispano/latino, 2= No hispano/No latino}
+         pueblo_originario, # ¿Perteneces a un pueblo originario?, {1=sí, 2=no}
+         pueblo_originario2, # ¿A qué pueblo eres originario?, {text}
+         pueblo_afro2, # ¿Perteneces a un pueblo afrodescendiente?, {1=sí, 2=no}
+         pueblo_afro, # ¿De dónde?, {text}
+         ancestria___1, # Africana
+         ancestria___2, # Amerindia
+         ancestria___3, # Asiática
+         ancestria___4, # Europea
+         ancestria___5, # Mestiza
+         ancestria___6, # otro {incluye individuos con orígenes en el Medio Oriente o África del Norte (por ejemplo, judíos y árabes ashkenazis}
+         )
+```
+
+### Factores de comportamiento
+
+```{r}
+#| label: Filtrado factores de comportamiento
+#| echo: true
+factores.de.comportamiento<-tb.01 %>%
+  select(caminatamets, # Puntaje Caminata, Cuestionario Internacional De Actividad Fisica Ipa
+         fisicamoderadamets, # Puntaje Actividad Física Moderada Ipa
+         fisicavigorosamets, # Puntaje Actividad Física Vigorosa Ipa
+         metstotal, # Puntaje total, Cuestionario Internacional De Actividad Fisica Ipa
+         puntuacion_alimentacion, # Puntuación total, comportamiento asociado a la ingesta de alimento
+         clasi_ali, # Clasificación alimentación, {3=adecuada, 2=parcialmente inadecuada, 1=inadecuada}
+         calglobcca, # Calificación, cuestionario de comportamiento alimenticio
+         smoking, # ¿Fumó durante el embarazo?, {0=no,1=sí,2=prefiero no contestar}
+         smoking_2, # ¿Fumó durante el embarazo?, {0=no,1=sí,2=prefiero no contestar}
+         pregn_smoke_habits___1, # Fumó durante el embarazo
+         pregn_smoke_habits___2, # Dejó de fumar durante el embarazo
+         pregn_smoke_habits___3, # Regresó a fumar después del embarazo
+         pregn_smokequit_month, # Dejó de fumar en el primer mes del embarazo
+         pregn_smokequit_month_2, # Dejó de fumar en el segundo mes del embarazo
+         pregn_smokequit_month_3, # Dejó de fumar en el tercer mes del embarazo
+         pregn_smokequit_month_4, # Dejó de fumar en el cuarto mes del embarazo
+         pregn_smokequit_month_5, # Dejó de fumar en el quinto mes de embarazo
+         pregn_smokestart_time, # Volvió a fumar un mes después del parto
+         pregn_smokestart_time_2, # Volvió a fumar dos meses después del parto
+         pregn_smokestart_time_3, # Volvió a fumar tres meses después del parto
+         pregn_smokestart_time_4, # Volvió a fumar cuatro meses después del parto
+         pregn_smokestart_time_5, # Volvió a fumar cinco meses después del parto
+  )
+```
+
+### Factores novedosos
+
+```{r}
+#| label: Filtrado factores novedosos
+#| echo: true
+factores.novedosos<-tb.01 %>%
+  select(cal_totalcv, # Calidad de vida total
+         cal_glob, # Calificación global del ICSP, calidad de sueño.
+         corticoesteroids, # ¿Consume alguno de los siguientes medicamentos (glucocorticoides) como parte de su tratamiento para el lupus?{0=Prednisona, 1= Prednisolona, 2=Deflazacort, 3=Meticorten, 4=Metilprednisolona, 5=Calcort, 6=Betametazona, 7= no, 8=otro}
+         corticosteroids_dosis, # ¿Cuál es la dosis base de corticoesteroide que consume al día? No olvide indicar si son mg/ml al día
+         dx_time_v2, # Aproximadamente, ¿Hace cuántos años que fue diagnosticad@ con lupus? (Únicamente colocar el número de años)
+         antimalarics, # ¿Consume algún tipo de antimaláricos como hidroxicloroquina, cloroquina o plaquenil de manera regular como parte de su tratamiento para el lupus?
+         biological_tx, # ¿Consume algún tipo de tratamiento biológico como rituximab obelimumab de manera regular como parte de su tratamiento para el lupus?
+         prednisolona, # ¿Toma usted algún corticoesteroide?, {0=Prednisona, 1= Prednisolona, 2=Deflazacort, 3=Meticorten, 4=Metilprednisolona, 5=Calcort, 6=Betametazona, 7= no, 8=otro},
+         tx_open, # ¿Toma usted algún corticoesteroide? Como prednisona (vía oral), metil-prednisolona (vía intravenosa), deﬂazacort (vía oral).
+         pred_dosis, # ¿Cuál es la dosis base de corticoesteroide que consume al día?No olvide indicar si son mg/ml al día
+         )
+```
+
+## Integración de factores
+
+```{r}
+#| label: Integración de factores
+#| echo: true
+#| include: false
+tb.02<-cbind(
+      factores.no.modificables,
+      factores.modificables,
+      factores.de.comportamiento,
+      factores.novedosos)
+# Selección de factores de interés para análisis preliminar
+tb.03 <- tb.02 %>%
+  select(hipertension___1,
+         hipertension_dxmed,
+         calculated_age,
+         age_group,
+         sex___1,
+         hispano,
+         pueblo_originario,
+         metstotal,
+         clasi_ali,
+         calglobcca,
+         smoking,
+         smoking_2, 
+         cal_totalcv,
+         cal_glob,
+         corticoesteroids)
+str(tb.03) # Revisamos la estructura del conjunto de datos
+```
+```{r}
+#| label: Verificamos censura de datos
+visdat::vis_miss(tb.03)
+tb.04 <- tb.03 %>%
+  select(hipertension___1,
+         age_group,
+         sex___1,
+         clasi_ali,
+         calglobcca,
+         cal_totalcv,
+         cal_glob)
+visdat::vis_miss(tb.04)
+tb.05<-na.omit(tb.04)
+visdat::vis_miss(tb.05)
+glimpse(tb.05)
+str(tb.05)
+# Formatemos el conjunto de datos
+tb.05$hipertension___1<-as.factor(tb.05$hipertension___1)
+tb.05$age_group<-as.factor(tb.05$age_group)
+tb.05$sex___1<-as.factor(tb.05$sex___1)
+tb.05$clasi_ali<-as.factor(tb.05$clasi_ali)
+str(tb.05[,c(1:4)])
+```
+
+## Aprendizaje de la estructura de la red
+
+Aplicaremos el algoritmo *max-min hill clambing* implementado en el paquete **bnlearn**, para tener una primera aproximación de la estructura de la red.
+
+```{r}
+#| label: Estructura inicial de la red
+estructura<-bnlearn::hc(tb.05[,c(1:4)])
+plot(estructura)
+```
+
+## Depuración de la estructura mediante conocimiento experto
+
+
+
+## Tablas de probabilidad condicional
+
+## Entrenamiento
+
+## Inferencias
+
+
+## Referencias
+
+<https://link.springer.com/book/10.1007/978-1-4614-6446-4>
+<https://www.routledge.com/Bayesian-Networks-With-Examples-in-R/Scutari-Denis/p/book/9780367366513>
+<https://ppml.dev/>
+<https://www.bnlearn.com/>
+<https://www.r-bloggers.com/2015/02/bayesian-network-in-r-introduction/>
+<https://jacintoarias.github.io/bayesnetRtutorial/#the_bayes_net_repository>
+<https://learningstatisticswithr.com/book/>
